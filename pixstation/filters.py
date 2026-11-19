@@ -1,11 +1,11 @@
 """Raster filters (Pillow + NumPy) and a live-preview parameter dialog."""
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QSlider
 
-from .document import IMAGE_FORMAT
+from .document import IMAGE_FORMAT, MASK_FORMAT
 
 
 # ---- QImage <-> PIL ----
@@ -76,6 +76,45 @@ FILTERS = [
     ("Invert", invert, []),
     ("Grayscale", grayscale, []),
 ]
+
+
+# ---- paint bucket helpers ----
+
+def image_array(img):
+    """(h, w, channels) uint8 copy: RGBA for layer images, 1 channel for masks."""
+    if img.format() == MASK_FORMAT:
+        a = np.frombuffer(bytes(img.constBits()), np.uint8).reshape(img.height(), img.bytesPerLine())
+        return a[:, :img.width()][..., None].copy()
+    img = img.convertToFormat(QImage.Format_RGBA8888)
+    a = np.frombuffer(bytes(img.constBits()), np.uint8).reshape(img.height(), img.bytesPerLine())
+    return a[:, :img.width() * 4].reshape(img.height(), img.width(), 4).copy()
+
+
+def flood_region(img, x, y, tolerance):
+    """Boolean (h, w) array: pixels connected to (x, y) within tolerance (0–255 per channel)."""
+    arr = image_array(img).astype(np.int16)
+    similar = np.abs(arr - arr[y, x]).max(axis=2) <= tolerance
+    # Flood-fill a 0/255 image with 128: only the connected similar area becomes 128.
+    # .copy(): an image made by fromarray shares the array's memory, and floodfill
+    # silently leaves such an image unchanged (seen with Pillow 13).
+    label = Image.fromarray(similar.astype(np.uint8) * 255, "L").copy()
+    ImageDraw.floodfill(label, (x, y), 128, thresh=0)
+    return np.array(label) == 128
+
+
+def region_fill(img, region, color):
+    """Image to draw over img: color inside region, transparent elsewhere."""
+    rgba = np.zeros((img.height(), img.width(), 4), np.uint8)
+    rgba[region] = (color.red(), color.green(), color.blue(), color.alpha())
+    return to_qimage(Image.fromarray(rgba, "RGBA"))
+
+
+def region_mask(mask, region, value):
+    """Copy of mask with the region set to value (0 hides, 255 shows)."""
+    arr = image_array(mask)[..., 0]
+    arr[region] = value
+    arr = np.ascontiguousarray(arr)
+    return QImage(arr.tobytes(), arr.shape[1], arr.shape[0], arr.shape[1], MASK_FORMAT).copy()
 
 
 def apply_filter(image, fn, params, selection=None):

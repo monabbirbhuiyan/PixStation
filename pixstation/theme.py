@@ -1,7 +1,7 @@
 """PixStation's dark theme and its icon set, drawn in code (no image files to ship)."""
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (QColor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap,
-                           QPolygonF)
+from PySide6.QtGui import (QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPalette,
+                           QPen, QPixmap, QPolygonF)
 
 BG = "#2b2b2f"        # window / panels
 BASE = "#1f1f22"      # inputs, lists
@@ -23,9 +23,9 @@ QToolButton:checked {{ background: #44444c; border-color: #55555e; }}
 QDockWidget {{ color: {TEXT}; titlebar-close-icon: none; }}
 QDockWidget::title {{ background: #252528; padding: 5px 8px; border-bottom: 1px solid {BORDER}; }}
 QListView::item {{ padding: 3px 4px; }}
-QListWidget, QListView, QUndoView {{ background: {BASE}; border: 1px solid {BORDER}; outline: 0; }}
-QListWidget::item {{ padding: 6px 4px; border-bottom: 1px solid #29292d; }}
-QListWidget::item:selected, QListView::item:selected {{ background: #34446a; color: white; }}
+QListWidget, QListView, QUndoView, QTreeWidget {{ background: {BASE}; border: 1px solid {BORDER}; outline: 0; }}
+QTreeWidget::item {{ padding: 4px 2px; border-bottom: 1px solid #29292d; }}
+QListWidget::item:selected, QListView::item:selected, QTreeWidget::item:selected {{ background: #34446a; color: white; }}
 QScrollArea#canvasArea {{ background: {CANVAS_BG}; border: none; }}
 QScrollArea#canvasArea > QWidget > QWidget {{ background: {CANVAS_BG}; }}
 QStatusBar {{ background: #252528; color: {DIM}; border-top: 1px solid {BORDER}; }}
@@ -187,10 +187,97 @@ def _trash(p):
     p.drawLine(QPointF(13.5, 10), QPointF(13.5, 17))
 
 
-ICONS = {"select": _select, "marquee": _marquee, "lasso": _lasso, "brush": _brush,
-         "eraser": _eraser, "rect": _rect, "ellipse": _ellipse, "pen": _pen, "text": _text,
-         "new_raster": _new_raster, "new_vector": _new_vector, "up": _up, "down": _down,
-         "trash": _trash}
+def _direct(p):
+    p.setBrush(QColor(BG))
+    p.drawPolygon(_poly((7, 3), (7, 19), (11, 15.5), (14, 21), (16.5, 20), (13.5, 14.5), (19, 14.5)))
+
+
+def _move(p):
+    p.drawLine(QPointF(12, 3), QPointF(12, 21))
+    p.drawLine(QPointF(3, 12), QPointF(21, 12))
+    for a, b, c in (((9, 6), (12, 3), (15, 6)), ((9, 18), (12, 21), (15, 18)),
+                    ((6, 9), (3, 12), (6, 15)), ((18, 9), (21, 12), (18, 15))):
+        p.drawPolyline(_poly(a, b, c))
+
+
+def _eyedropper(p):
+    p.drawLine(QPointF(4, 20), QPointF(13, 11))
+    p.drawLine(QPointF(4, 20), QPointF(5.5, 17))
+    p.setBrush(QColor(TEXT))
+    body = QPainterPath(QPointF(11, 9))
+    body.lineTo(15, 13)
+    body.lineTo(20.5, 7.5)
+    body.cubicTo(22, 6, 18, 2, 16.5, 3.5)
+    body.closeSubpath()
+    p.drawPath(body)
+
+
+def _bucket(p):
+    p.drawPolygon(_poly((4, 11), (11, 4), (18, 11), (11, 18)))
+    p.drawLine(QPointF(11, 4), QPointF(8, 1.5))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(ACCENT))
+    drop = QPainterPath(QPointF(19.5, 13))
+    drop.cubicTo(17, 17, 17, 20, 19.5, 20)
+    drop.cubicTo(22, 20, 22, 17, 19.5, 13)
+    p.drawPath(drop)
+
+
+def _gradient(p):
+    g =QLinearGradient(4, 0, 20, 0)
+    g.setColorAt(0, QColor(TEXT))
+    g.setColorAt(1, QColor(BG))
+    p.setBrush(g)
+    p.drawRect(QRectF(4, 6, 16, 12))
+
+
+def _folder(p):
+    path = QPainterPath(QPointF(3, 7))
+    path.lineTo(3, 18.5)
+    path.lineTo(21, 18.5)
+    path.lineTo(21, 8.5)
+    path.lineTo(11.5, 8.5)
+    path.lineTo(9.5, 5.5)
+    path.lineTo(3, 5.5)
+    path.closeSubpath()
+    p.drawPath(path)
+
+
+def _new_group(p):
+    p.scale(0.8, 0.8)
+    _folder(p)
+    p.scale(1.25, 1.25)
+    _plus_badge(p)
+
+
+def _mask(p):
+    p.drawRect(QRectF(3.5, 4.5, 17, 15))
+    p.setBrush(QColor(TEXT))
+    p.drawEllipse(QPointF(12, 12), 4.5, 4.5)
+
+
+def _eye(p):
+    path = QPainterPath(QPointF(2.5, 12))
+    path.cubicTo(7, 5, 17, 5, 21.5, 12)
+    path.cubicTo(17, 19, 7, 19, 2.5, 12)
+    p.drawPath(path)
+    p.setBrush(QColor(TEXT))
+    p.drawEllipse(QPointF(12, 12), 3, 3)
+
+
+def _eye_off(p):
+    p.setPen(QPen(QColor(DIM), 1.6, Qt.SolidLine, Qt.RoundCap))
+    path = QPainterPath(QPointF(2.5, 12))
+    path.cubicTo(7, 17.5, 17, 17.5, 21.5, 12)  # closed eyelid
+    p.drawPath(path)
+
+
+ICONS = {"select": _select, "direct": _direct, "move": _move, "marquee": _marquee,
+         "lasso": _lasso, "eyedropper": _eyedropper, "brush": _brush, "eraser": _eraser,
+         "bucket": _bucket, "gradient": _gradient, "rect": _rect, "ellipse": _ellipse,
+         "pen": _pen, "text": _text, "new_raster": _new_raster, "new_vector": _new_vector,
+         "new_group": _new_group, "folder": _folder, "mask": _mask, "eye": _eye,
+         "eye_off": _eye_off, "up": _up, "down": _down, "trash": _trash}
 
 
 def icon(name, size=24):

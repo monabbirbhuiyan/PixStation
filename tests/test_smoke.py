@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QImage, QPainterPath
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from pixstation.document import RasterLayer, blank_image
+from pixstation.document import GroupLayer, RasterLayer, blank_image
 from pixstation.filters import invert
 from pixstation.ora import load_ora
 from pixstation.window import MainWindow
@@ -122,7 +122,7 @@ class SmokeTest(unittest.TestCase):
         kinds = {path.elementAt(i).type for i in range(path.elementCount())}
         self.assertIn(QPainterPath.CurveToElement, kinds)
         self.c.set_tool("text")
-        self.c.ask_text = lambda: "Hi"
+        self.c.ask_text = lambda initial="": "Hi"
         QTest.mouseClick(self.c, Qt.LeftButton, Qt.NoModifier, QPoint(100, 300))
         self.assertEqual(len(vec.shapes), 2)
         self.assertFalse(vec.shapes[1].path.isEmpty())
@@ -196,3 +196,170 @@ class SmokeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Milestone3Test(unittest.TestCase):
+    """Essentials, move/clipboard, deeper vector editing, masks and groups."""
+
+    def setUp(self):
+        self.win = MainWindow()
+        self.win.show()
+        self.c = self.win.canvas
+        self.doc = self.win.doc
+        self.bg, self.vec = self.doc.layers
+
+    def tearDown(self):
+        self.win.stack.setClean()  # skip the discard prompt on close
+
+    def drag(self, a, b, tool=None):
+        if tool:
+            self.win._choose_tool(tool, tool)
+        QTest.mousePress(self.c, Qt.LeftButton, Qt.NoModifier, QPoint(*a))
+        QTest.mouseMove(self.c, QPoint(*b))
+        QTest.mouseRelease(self.c, Qt.LeftButton, Qt.NoModifier, QPoint(*b))
+
+    def click(self, pt, tool=None):
+        self.drag(pt, pt, tool)
+
+    def px(self, layer, x, y):
+        return layer.image.pixelColor(x, y).name(QColor.HexArgb)
+
+    def test_eyedropper_bucket_gradient(self):
+        self.win.active = self.bg
+        self.c.color = QColor("#ff0000")
+        self.drag((10, 10), (300, 10), "brush")
+        self.c.color = QColor("#000000")
+        self.click((150, 10), "eyedropper")
+        self.assertEqual(self.c.color.name(), "#ff0000")
+        self.c.color = QColor("#00ff00")
+        self.click((500, 500), "bucket")  # fills the white area, not the red line
+        self.assertEqual(self.px(self.bg, 600, 600), "#ff00ff00")
+        self.assertEqual(self.px(self.bg, 150, 10), "#ffff0000")
+        self.win.stack.undo()
+        self.assertEqual(self.px(self.bg, 600, 600), "#ffffffff")
+        self.c.color, self.c.fill_color = QColor("#000000"), QColor("#ffffff")
+        self.drag((100, 400), (1100, 400), "gradient")
+        self.assertLess(self.bg.image.pixelColor(50, 400).red(), 10)
+        self.assertGreater(self.bg.image.pixelColor(1150, 400).red(), 245)
+
+    def test_crop_canvas_size_fit_and_eye(self):
+        self.win.active = self.vec
+        self.drag((300, 300), (400, 400), "rect")
+        self.drag((200, 200), (500, 600), "marquee")
+        self.win.crop_to_selection()
+        self.assertEqual((self.doc.width, self.doc.height), (300, 400))
+        self.assertEqual(self.bg.image.size().toTuple(), (300, 400))
+        self.assertEqual(self.vec.shapes[0].path.boundingRect().topLeft().toTuple(), (100, 100))
+        self.assertEqual(self.c.size().toTuple(), (300, 400))
+        self.win.stack.undo()
+        self.assertEqual((self.doc.width, self.doc.height), (1200, 800))
+        self.assertEqual(self.vec.shapes[0].path.boundingRect().topLeft().toTuple(), (300, 300))
+        self.win.zoom_to_fit()
+        self.assertLess(self.c.zoom, 1)
+        item = self.win.layer_tree.topLevelItem(1)  # Background (top layer is listed first)
+        self.win._on_item_clicked(item, 1)  # eye column
+        QApplication.processEvents()
+        self.assertFalse(self.bg.visible)
+        self.win.stack.undo()
+        self.assertTrue(self.bg.visible)
+
+    def test_move_tool_duplicate_merge_clipboard(self):
+        self.win.active = self.bg
+        self.c.color = QColor("#ff0000")
+        self.drag((100, 100), (100, 100), "brush")
+        self.drag((80, 80), (120, 120), "marquee")
+        self.drag((100, 100), (300, 100), "move")  # moves only the selected pixels
+        self.assertEqual(self.px(self.bg, 300, 100), "#ffff0000")
+        self.assertEqual(self.px(self.bg, 100, 100), "#00000000")  # hole left behind
+        self.assertEqual(self.c.selection.boundingRect().left(), 280)
+        self.win.active = self.vec
+        self.c.deselect()
+        self.drag((10, 10), (60, 60), "rect")
+        self.drag((500, 500), (520, 530), "move")  # whole vector layer
+        self.assertEqual(self.vec.shapes[0].path.boundingRect().topLeft().toTuple(), (30, 40))
+        self.win.stack.undo()
+        self.assertEqual(self.vec.shapes[0].path.boundingRect().topLeft().toTuple(), (10, 10))
+        self.win.duplicate_layer()
+        self.assertEqual(len(self.doc.layers), 3)
+        copy = self.doc.layers[2]
+        self.assertIsNot(copy.shapes[0], self.vec.shapes[0])
+        self.win.merge_down()
+        self.assertEqual([l.kind for l in self.doc.layers], ["raster", "raster"])
+        self.win.stack.undo()
+        self.assertEqual(len(self.doc.layers), 3)
+        # clipboard: copy a raster selection and paste it as a new layer in place
+        self.win.active = self.bg
+        self.drag((280, 80), (320, 120), "marquee")
+        self.win.copy()
+        if QApplication.clipboard().mimeData().hasImage():  # some headless platforms lack a clipboard
+            self.win.paste()
+            pasted = self.win.active
+            self.assertEqual(pasted.name, "Pasted")
+            self.assertEqual(self.px(pasted, 300, 100), "#ffff0000")
+            self.assertEqual(self.px(pasted, 10, 10), "#00000000")
+
+    def test_direct_select_text_arrange_align(self):
+        self.win.active = self.vec
+        self.drag((100, 100), (200, 200), "rect")
+        self.drag((300, 300), (400, 400), "ellipse")
+        rect, ell = self.vec.shapes
+        self.click((100, 150), "direct")  # select the rectangle
+        self.drag((100, 100), (50, 60))   # drag its top-left anchor
+        self.assertEqual(rect.path.boundingRect().topLeft().toTuple(), (50, 60))
+        self.win.stack.undo()
+        self.assertEqual(rect.path.boundingRect().topLeft().toTuple(), (100, 100))
+        self.c.ask_text = lambda initial="": "Hello"
+        self.click((500, 500), "text")
+        text = self.vec.shapes[2]
+        self.assertEqual(text.text["text"], "Hello")
+        width = text.path.boundingRect().width()
+        self.c.ask_text = lambda initial="": initial + " world"
+        self.click((510, 490), "text")  # clicking existing text edits it
+        self.assertEqual(text.text["text"], "Hello world")
+        self.assertGreater(text.path.boundingRect().width(), width)
+        self.click((150, 100), "select")  # rectangle
+        self.win._bracket("forward")
+        self.assertIs(self.vec.shapes[1], rect)
+        self.c.arrange("front")
+        self.assertIs(self.vec.shapes[-1], rect)
+        self.c.align("left")
+        self.assertEqual(rect.path.boundingRect().left(), 0)
+
+    def test_masks_and_groups_round_trip(self):
+        self.win.active = self.bg
+        self.win.add_mask()
+        self.assertTrue(self.c.edit_mask)
+        self.c.color = QColor("#000000")  # black on a mask hides
+        self.c.stroke_width = 40
+        self.drag((100, 100), (100, 100), "brush")
+        self.assertEqual(self.px(self.bg, 100, 100), "#ffffffff")  # pixels untouched
+        self.assertEqual(self.doc.flatten().pixelColor(100, 100).alpha(), 0)  # but hidden
+        self.win.set_edit_mask(False)
+        self.win.active = self.vec
+        self.drag((300, 300), (400, 400), "rect")
+        self.win.group_layer()
+        group = self.doc.layers[1]
+        self.assertEqual((group.kind, group.children), ("group", [self.vec]))
+        self.win.active = self.bg
+        self.win.move_layer(1)  # moving up into the group above
+        self.assertEqual(group.children, [self.bg, self.vec])
+        self.win.move_layer(-1)  # and out again
+        self.assertIs(self.doc.layers[0], self.bg)
+        group.opacity = 0.5
+        self.c.ask_text = lambda initial="": "Ab"
+        self.win.active = self.vec
+        self.click((600, 600), "text")
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "m3.ora")
+            self.assertTrue(self.win._write_ora(path))
+            doc = load_ora(path)
+        bg2, g2 = doc.layers
+        self.assertEqual((g2.kind, g2.opacity, len(g2.children)), ("group", 0.5, 1))
+        self.assertEqual(bg2.mask.pixelColor(100, 100).alpha(), 0)
+        self.assertEqual(bg2.image.pixelColor(100, 100).name(), "#ffffff")  # unmasked pixels kept
+        self.assertEqual(g2.children[0].shapes[-1].text["text"], "Ab")
+        self.assertEqual(doc.flatten().pixelColor(100, 100).alpha(), 0)
+        self.win.active = group
+        self.win.ungroup()
+        self.assertEqual([l.kind for l in self.doc.layers], ["raster", "vector"])
+        self.assertIsInstance(group, GroupLayer)
