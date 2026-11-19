@@ -34,7 +34,8 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest
 - **Project files**: Save (Cmd/Ctrl+S) and Save As (Cmd/Ctrl+Shift+S) write [OpenRaster](https://www.openraster.org/) `.ora`, an open layered format that Krita, GIMP and MyPaint can also open. Layers, names, visibility, opacity and blend modes are kept. Vector layers are saved twice: as a PNG that other apps can show, and as editable shapes in `data/layerN.json` (via a `strata:vector` attribute that other apps ignore).
 - **Open**: `.ora`, PNG, JPG, BMP. Layer groups in other apps' `.ora` files are flattened.
 - **Export**: flattened PNG, and SVG (Cmd/Ctrl+Shift+E). In SVG, vector layers become `<path>`s and raster layers are embedded as images. SVG keeps layer opacity but not blend modes.
-- Zoom: Cmd/Ctrl+= / Cmd/Ctrl+- / Cmd/Ctrl+0.
+- **Workspace**: dark theme, tool strip on the left, options bar for the current tool on top, Layers panel with thumbnails and a History panel (click a step to jump back to it) on the right, zoom and canvas size in the status bar. Icons are drawn in code in `strata/theme.py`.
+- Zoom: Cmd/Ctrl+= / Cmd/Ctrl+- / Cmd/Ctrl+0, or Cmd/Ctrl + scroll wheel.
 
 ## Layout
 
@@ -42,8 +43,9 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest
 - `strata/canvas.py`: canvas widget and tool input
 - `strata/filters.py`: raster filters (Pillow/NumPy) and the filter dialog
 - `strata/ora.py`: OpenRaster save/load
+- `strata/theme.py`: dark theme and icon set
 - `strata/window.py`: main window, toolbar, layer panel, menus, file I/O
 
 ## Not yet
 
-Layer groups, layer masks, moving or transforming pixels, editing individual path points after drawing, re-editable text, gradients, and a history panel.
+Layer groups, layer masks, moving or transforming pixels, editing individual path points after drawing, re-editable text, gradients, and an eye-icon visibility toggle.

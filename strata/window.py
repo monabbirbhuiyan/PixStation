@@ -1,14 +1,15 @@
 """Main window: menus, tool bar, layer panel."""
 import os
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon, QImage, QKeySequence, QPixmap,
-                           QUndoStack)
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon, QImage, QKeySequence, QPainter,
+                           QPixmap, QUndoStack)
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
                                QFontDialog, QFormLayout, QHBoxLayout, QLabel, QListWidget,
-                               QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-                               QScrollArea, QSlider, QSpinBox, QToolButton, QVBoxLayout, QWidget)
+                               QListWidgetItem, QMainWindow, QMessageBox, QScrollArea, QSlider,
+                               QSpinBox, QToolBar, QToolButton, QUndoView, QVBoxLayout, QWidget)
 
+from . import theme
 from .canvas import Canvas
 from .document import (BLEND_MODES, AddLayer, Document, ImageEdit, MoveLayer, RasterLayer,
                        RemoveLayer, SetAttrs, VectorLayer)
@@ -21,6 +22,7 @@ TOOLS = [("select", "Select", "V"), ("marquee", "Marquee", "M"), ("lasso", "Lass
          None,
          ("rect", "Rectangle", "R"), ("ellipse", "Ellipse", "O"), ("pen", "Pen", "P"),
          ("text", "Text", "T")]
+THUMB_W, THUMB_H = 44, 30  # layer thumbnail size in the Layers panel
 
 
 class MainWindow(QMainWindow):
@@ -36,11 +38,15 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas(self.stack, lambda: self.active)
         self.canvas.message.connect(lambda m: self.statusBar().showMessage(m, 3000))
         self.canvas.shape_selected.connect(self._on_shape_selected)
-        scroll = QScrollArea()
+        self.canvas.zoom_changed.connect(self._update_status)
+        scroll = QScrollArea(objectName="canvasArea")
         scroll.setWidget(self.canvas)
         scroll.setAlignment(Qt.AlignCenter)
-        scroll.setStyleSheet("QScrollArea { background: #3a3a3e; }")
         self.setCentralWidget(scroll)
+        self.zoom_label = QLabel()
+        self.size_label = QLabel()
+        self.statusBar().addPermanentWidget(self.size_label)
+        self.statusBar().addPermanentWidget(self.zoom_label)
 
         self._build_layer_panel()
         self._build_toolbar()
@@ -53,28 +59,35 @@ class MainWindow(QMainWindow):
 
     # ---- UI construction ----
     def _build_toolbar(self):
-        tb = self.addToolBar("Tools")
-        tb.setMovable(False)
+        # left: vertical tool strip, icons only
+        tools = QToolBar("Tools", objectName="tools", movable=False)
+        tools.setOrientation(Qt.Vertical)
+        tools.setIconSize(QSize(22, 22))
+        self.addToolBar(Qt.LeftToolBarArea, tools)
         group = QActionGroup(self)
         self.tool_actions = {}
         for tool in TOOLS:
             if tool is None:
-                tb.addSeparator()
+                tools.addSeparator()
                 continue
             key, label, shortcut = tool
-            act = QAction(label, self, checkable=True, shortcut=shortcut)
+            act = QAction(theme.icon(key), label, self, checkable=True, shortcut=shortcut)
             act.setToolTip(f"{label} ({shortcut})")
-            act.triggered.connect(lambda _=False, k=key: self.canvas.set_tool(k))
+            act.triggered.connect(lambda _=False, k=key, l=label: self._choose_tool(k, l))
             group.addAction(act)
-            tb.addAction(act)
+            tools.addAction(act)
             self.tool_actions[key] = act
         self.tool_actions["brush"].setChecked(True)
-        tb.addSeparator()
 
-        # These double as the style of the selected shape (Select tool).
-        self.color_btn = QToolButton(text="Color")
+        # top: options bar for the current tool. The style controls double as the
+        # style of the selected shape (Select tool).
+        opts = QToolBar("Options", objectName="options", movable=False)
+        self.addToolBar(Qt.TopToolBarArea, opts)
+        self.tool_label = QLabel("Brush")
+        self.tool_label.setStyleSheet("font-weight: 600; min-width: 72px; padding-left: 6px;")
+        self.color_btn = QToolButton(text="Stroke", toolButtonStyle=Qt.ToolButtonTextBesideIcon)
         self.color_btn.clicked.connect(self._pick_stroke)
-        self.fill_btn = QToolButton(text="Fill")
+        self.fill_btn = QToolButton(text="Fill", toolButtonStyle=Qt.ToolButtonTextBesideIcon)
         self.fill_btn.clicked.connect(self._pick_fill)
         self.fill_chk = QCheckBox("Fill shapes")
         self.fill_chk.toggled.connect(self._set_fill_enabled)
@@ -83,10 +96,21 @@ class MainWindow(QMainWindow):
         self.size_spin.valueChanged.connect(self._set_size)
         font_btn = QToolButton(text="Font…")
         font_btn.clicked.connect(self._pick_font)
-        for w in (self.color_btn, self.fill_btn, self.fill_chk, QLabel(" Size "), self.size_spin, font_btn):
-            tb.addWidget(w)
+        opts.addWidget(self.tool_label)
+        opts.addSeparator()
+        for w in (self.color_btn, self.fill_btn, self.fill_chk):
+            opts.addWidget(w)
+        opts.addSeparator()
+        for w in (QLabel("Size"), self.size_spin):
+            opts.addWidget(w)
+        opts.addSeparator()
+        opts.addWidget(font_btn)
         self._swatch(self.color_btn, self.canvas.color)
         self._swatch(self.fill_btn, self.canvas.fill_color)
+
+    def _choose_tool(self, key, label):
+        self.canvas.set_tool(key)
+        self.tool_label.setText(label)
 
     # ---- style controls (apply to new shapes and to the selected one) ----
     def _pick_stroke(self):
@@ -140,13 +164,15 @@ class MainWindow(QMainWindow):
         self.layer_list = QListWidget()
         self.layer_list.currentRowChanged.connect(self._on_row_changed)
         self.layer_list.itemChanged.connect(self._on_item_changed)
+        self.layer_list.setIconSize(QSize(THUMB_W, THUMB_H))
         buttons = QHBoxLayout()
-        for text, tip, slot in [("+R", "New raster layer", self.add_raster_layer),
-                                ("+V", "New vector layer", self.add_vector_layer),
-                                ("▲", "Move layer up", lambda: self.move_layer(1)),
-                                ("▼", "Move layer down", lambda: self.move_layer(-1)),
-                                ("✕", "Delete layer", self.delete_layer)]:
-            b = QPushButton(text, toolTip=tip)
+        buttons.addStretch()
+        for name, tip, slot in [("new_raster", "New raster layer", self.add_raster_layer),
+                                ("new_vector", "New vector layer", self.add_vector_layer),
+                                ("up", "Move layer up", lambda: self.move_layer(1)),
+                                ("down", "Move layer down", lambda: self.move_layer(-1)),
+                                ("trash", "Delete layer", self.delete_layer)]:
+            b = QToolButton(icon=theme.icon(name, 18), toolTip=tip)
             b.clicked.connect(slot)
             buttons.addWidget(b)
         self.opacity = QSlider(Qt.Horizontal, minimum=0, maximum=100)
@@ -165,10 +191,21 @@ class MainWindow(QMainWindow):
         lay.addLayout(props)
         lay.addWidget(self.layer_list)
         lay.addLayout(buttons)
-        dock = QDockWidget("Layers", self)
+        dock = QDockWidget("Layers", self, objectName="layersDock")
         dock.setWidget(box)
         dock.setFeatures(QDockWidget.DockWidgetMovable)
+        dock.setMinimumWidth(260)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
+
+        history = QUndoView(self.stack)
+        history.setEmptyLabel("Open")
+        hdock = QDockWidget("History", self, objectName="historyDock")
+        hdock.setWidget(history)
+        hdock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
+        self.addDockWidget(Qt.RightDockWidgetArea, hdock)
+        self.splitDockWidget(hdock, dock, Qt.Vertical)  # history on top, layers below
+        self.resizeDocks([hdock, dock], [180, 520], Qt.Vertical)
+        self.history_dock = hdock
 
     def _build_menus(self):
         def add(menu, text, slot, shortcut=None):
@@ -205,6 +242,8 @@ class MainWindow(QMainWindow):
         add(m, "Zoom In", lambda: self.canvas.set_zoom(self.canvas.zoom * 1.25), QKeySequence.ZoomIn)
         add(m, "Zoom Out", lambda: self.canvas.set_zoom(self.canvas.zoom / 1.25), QKeySequence.ZoomOut)
         add(m, "Actual Size", lambda: self.canvas.set_zoom(1.0), "Ctrl+0")
+        m.addSeparator()
+        m.addAction(self.history_dock.toggleViewAction())
 
         m = self.menuBar().addMenu("&Layer")
         add(m, "New Raster Layer", self.add_raster_layer, "Ctrl+Shift+N")
@@ -218,10 +257,27 @@ class MainWindow(QMainWindow):
             add(m, label, lambda _=False, l=label, f=fn, ps=params: self.run_filter(l, f, ps))
 
     def _swatch(self, btn, color):
-        pm = QPixmap(14, 14)
-        pm.fill(color)
-        btn.setIcon(QIcon(pm))
-        btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        btn.setIcon(theme.swatch(color))
+
+    def _thumbnail(self, layer):
+        pm = QPixmap(THUMB_W * 2, THUMB_H * 2)
+        pm.setDevicePixelRatio(2)
+        pm.fill(Qt.transparent)
+        img = self.doc.layer_image(layer).scaled(THUMB_W * 2, THUMB_H * 2, Qt.KeepAspectRatio,
+                                                  Qt.SmoothTransformation)
+        w, h = img.width() / 2, img.height() / 2
+        x, y = (THUMB_W - w) / 2, (THUMB_H - h) / 2
+        p = QPainter(pm)
+        p.fillRect(int(x), int(y), int(w), int(h), QColor("#ffffff"))  # paper behind transparency
+        p.drawImage(QRectF(x, y, w, h), img)
+        p.setPen(QColor("#55555e"))
+        p.drawRect(QRectF(x, y, w - 1, h - 1))
+        p.end()
+        return QIcon(pm)
+
+    def _update_status(self, *_):
+        self.zoom_label.setText(f"{self.canvas.zoom * 100:.0f}%")
+        self.size_label.setText(f"{self.doc.width} × {self.doc.height} px")
 
     # ---- filters ----
     def run_filter(self, label, fn, params):
@@ -256,6 +312,7 @@ class MainWindow(QMainWindow):
         self.stack.clear()
         self.active = doc.layers[-1] if doc.layers else None
         self.canvas.set_document(doc)
+        self._update_status()
         self._on_doc_changed()
         self.setWindowModified(False)
 
@@ -286,10 +343,14 @@ class MainWindow(QMainWindow):
         for layer in reversed(self.doc.layers):  # top layer first
             it = QListWidgetItem(layer.name)
             it.setToolTip(f"{layer.kind} layer")
+            it.setIcon(self._thumbnail(layer))
             it.setData(Qt.UserRole, layer)
             it.setFlags(it.flags() | Qt.ItemIsEditable | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked if layer.visible else Qt.Unchecked)
-            it.setForeground(QColor(60, 110, 200) if layer.kind == "vector" else QColor(Qt.black))
+            if layer.kind == "vector":
+                f = it.font()
+                f.setItalic(True)  # vector layers read as italic, raster as upright
+                it.setFont(f)
             self.layer_list.addItem(it)
             if layer is self.active:
                 self.layer_list.setCurrentItem(it)

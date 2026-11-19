@@ -45,6 +45,7 @@ def _corners(r):
 class Canvas(QWidget):
     message = Signal(str)
     shape_selected = Signal(object)  # Shape or None
+    zoom_changed = Signal(float)
 
     def __init__(self, stack, get_active_layer):
         super().__init__()
@@ -89,7 +90,15 @@ class Canvas(QWidget):
     def set_zoom(self, z):
         self.zoom = max(0.1, min(z, 16.0))
         self.setFixedSize(int(self.doc.width * self.zoom), int(self.doc.height * self.zoom))
+        self.zoom_changed.emit(self.zoom)
         self.update()
+
+    def wheelEvent(self, ev):
+        if ev.modifiers() & Qt.ControlModifier:  # Ctrl/Cmd + wheel zooms; plain wheel scrolls
+            self.set_zoom(self.zoom * (1.25 if ev.angleDelta().y() > 0 else 0.8))
+            ev.accept()
+        else:
+            ev.ignore()
 
     def set_tool(self, tool):
         self.finish_pen()  # switching tools keeps an in-progress path (if it has 2+ points)

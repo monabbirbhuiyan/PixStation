@@ -2,12 +2,14 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from . import theme
 from .window import MainWindow
 
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Strata")
+    theme.apply(app)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
