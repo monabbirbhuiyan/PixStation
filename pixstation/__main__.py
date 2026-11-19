@@ -8,7 +8,7 @@ from .window import MainWindow
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Strata")
+    app.setApplicationName("PixStation")
     theme.apply(app)
     win = MainWindow()
     win.show()

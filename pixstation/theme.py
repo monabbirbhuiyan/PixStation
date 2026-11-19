@@ -1,4 +1,4 @@
-"""Strata's dark theme and its icon set, drawn in code (no image files to ship)."""
+"""PixStation's dark theme and its icon set, drawn in code (no image files to ship)."""
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (QColor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap,
                            QPolygonF)

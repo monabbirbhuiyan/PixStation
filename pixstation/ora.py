@@ -5,7 +5,7 @@ layer in `data/`, plus `mergedimage.png` and `Thumbnails/thumbnail.png`.
 
 Vector layers are also written as PNG, so other OpenRaster apps (Krita, GIMP, MyPaint)
 show them. Their editable shapes go in `data/<n>.json`, referenced by the extension
-attribute `strata:vector`; other apps ignore it.
+attribute `pixstation:vector`; other apps ignore it.
 """
 import json
 import os
@@ -18,8 +18,8 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath
 
 from .document import BLEND_MODES, Document, IMAGE_FORMAT, RasterLayer, Shape, VectorLayer, blank_image
 
-STRATA_NS = "https://strata.local/ns/ora"
-VECTOR_ATTR = f"{{{STRATA_NS}}}vector"
+PIXSTATION_NS = "urn:pixstation:ora"
+VECTOR_ATTR = f"{{{PIXSTATION_NS}}}vector"
 
 
 def _png_bytes(img):
@@ -68,7 +68,7 @@ def _shape_from_dict(d):
 # ---- save / load ----
 
 def save_ora(doc, path):
-    ET.register_namespace("strata", STRATA_NS)
+    ET.register_namespace("pixstation", PIXSTATION_NS)
     image = ET.Element("image", {"version": "0.0.5", "w": str(doc.width), "h": str(doc.height)})
     stack = ET.SubElement(image, "stack")
     files = {}
@@ -110,7 +110,7 @@ def load_ora(path):
             root = ET.fromstring(z.read("stack.xml"))
             doc = Document(int(root.get("w")), int(root.get("h")))
             # chisle: nested stacks (groups) are flattened into one list; group offsets,
-            # group opacity and group blend modes are ignored until Strata has groups.
+            # group opacity and group blend modes are ignored until PixStation has groups.
             for el in reversed(list(root.iter("layer"))):  # file is top-first, we are bottom-first
                 name = el.get("name", "Layer")
                 if el.get(VECTOR_ATTR):

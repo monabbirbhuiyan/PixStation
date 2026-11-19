@@ -416,7 +416,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open", "", "Strata / OpenRaster or image (*.ora *.png *.jpg *.jpeg *.bmp)")
+            self, "Open", "", "PixStation / OpenRaster or image (*.ora *.png *.jpg *.jpeg *.bmp)")
         if not path:
             return
         if path.lower().endswith(".ora"):
@@ -486,5 +486,5 @@ class MainWindow(QMainWindow):
 
     def setWindowModified(self, modified):
         name = os.path.basename(self.path) if self.path else "Untitled"
-        self.setWindowTitle(f"{name}[*] — Strata")
+        self.setWindowTitle(f"{name}[*] — PixStation")
         super().setWindowModified(modified)

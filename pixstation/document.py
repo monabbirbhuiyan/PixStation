@@ -135,7 +135,7 @@ class Document:
         gen.setFileName(path)
         gen.setSize(QSize(self.width, self.height))
         gen.setViewBox(QRect(0, 0, self.width, self.height))
-        gen.setTitle("Strata export")
+        gen.setTitle("PixStation export")
         p = QPainter(gen)
         # vector layers become <path>; raster layers are embedded as <image>.
         # SVG output keeps opacity but not blend modes (QSvgGenerator limitation).

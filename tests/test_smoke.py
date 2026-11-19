@@ -14,10 +14,10 @@ from PySide6.QtGui import QColor, QImage, QPainterPath
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from strata.document import RasterLayer, blank_image
-from strata.filters import invert
-from strata.ora import load_ora
-from strata.window import MainWindow
+from pixstation.document import RasterLayer, blank_image
+from pixstation.filters import invert
+from pixstation.ora import load_ora
+from pixstation.window import MainWindow
 
 app = QApplication.instance() or QApplication([])
 
